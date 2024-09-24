@@ -1,0 +1,5 @@
+matplotlib==3.9.0
+numpy==1.26.4
+pyDOE==0.3.8
+scikit_learn==1.4.2
+torch==2.2.0+cu121

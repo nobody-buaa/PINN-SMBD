@@ -1,0 +1,189 @@
+/clear!全清理
+/FILNAME,test!文件名-test 
+/TITLE,Flat bladed disk
+!标题-平板叶盘
+!============一、前处理==============================
+/PREP7!进入前处理器
+*AFUN,DEG!设定为角度制
+*SET,SETA,ASIN(5/24)!设定seta绘图辅助角
+!============1.1设定材料参数=========================
+!设定材料参数
+
+
+*SET,HH,10.00
+*SET,Exx_13,1.21E5!盘的弹性模量
+*SET,PRXY,0.306!泊松比
+*SET,DENS,4.48E-9!密度
+
+!循环创建13个材料编号
+*DO,I,1,13,1
+    MP,EX,I, EXX_%I%
+    MP,PRXY,I,PRXY  
+    MP,DENS,I,DENS
+*ENDDO
+ET,1,SOLID185!创建单元类型
+!============1.2建立实体模型=========================
+!=======1.2.1建立轮盘基本扇区实体=====================
+CSYS,4!激活工作平面
+K,1,0,0,0!绘制关键点
+K,2,0,0,-5 
+K,3,0,0,5
+CIRCLE,2,120,,,30,1!以点2为圆心绘制圆弧
+CIRCLE,2,12.5,,,30,1 
+wprot,15-seta!工作平面绕z轴旋转
+K,8,120,0,-5
+wprot,2*seta   
+K,9,120,0,-5
+LSTR,7,5!点连成线
+LSTR,7,9
+LSTR,6,4
+LSTR,6,8
+LCSL,4,1!线线分割
+LCSL,6,7
+LDELE,4!删除线
+LDELE,6
+NUMCMP,ALL!压缩编号
+
+LSTR,2,3
+AL,1,4,2,3,5,6!线连成面
+VDRAG,1,,,,,,7!体沿线拉伸成体
+NUMCMP,ALL
+!=======1.2.2建立叶片基本扇区实体=================
+WPCSYS,-1,0!将工作平面还原
+CSYS,4
+wprot,15
+K,16,300,25,-0.5*Hh
+K,17,300,-25,-0.5*Hh
+K,18,300,25,0.5*Hh
+K,19,300,-25,0.5*Hh
+A,16,17,19,18
+A,9,16,18,12
+A,8,17,19,11
+A,9,16,17,8
+A,12,18,19,11
+VA,9,10,11,12,13,3!面连成体
+!===============1.2.3网格划分==========================
+LESIZE,11,,,8!限制大圆弧中段上分网8段
+LESIZE,23,,,4!限制叶片分网4层
+ESIZE,5!全局默认单元边长长度或分段数
+TYPE,1!单元类型为编号1
+MAT,13!材料类型为编号13
+MSHAPE,0,2D!面网格为四面体网格
+VSWEEP,ALL!扫掠分网
+!==================1.3复制建立其余实体=======================
+CSYS,1!激活总体柱坐标系
+VGEN,12,1,,,,30!旋转复制轮盘基本扇区
+VGEN,12,2,,,,30!旋转复制叶片基本扇区
+!NUMMRG,ALL合并同位置同类图素--实现glue,直接使用会删除某个材料编号
+NUMMRG,ELEM
+NUMMRG,NODE
+NUMMRG,KP
+!===============1.4组件选取，更改材料编号==========================
+CSYS,1!激活总体柱坐标系
+*DO,I,0,11,1
+    ESEL,S,CENT,X,120,301
+    ESEL,R,CENT,Y,I*30,I*30+30
+    CM,BLADE_%I%,ELEM
+    EMODIF,all,MAT,I+1
+    ALLSEL,ALL
+*ENDDO
+ESEL,S,CENT,X,0,120
+CM,DISK,ELEM
+EMODIF,all,MAT,13
+ALLSEL,ALL
+!===============1.5施加内环壁约束==========================
+NSEL,S,LOC,X,12.5
+D,ALL,,,,,,UX,UY,UZ
+ALLSEL,ALL
+!===============二、求解器==========================
+!===============2.1模态分析==========================
+/SOLU
+ANTYPE,2!设定为模态分析
+MODOPT,LANB,100!兰索斯算法，求100阶模态
+MXPAND,100,,,NO!不进行模态拓展
+SOLVE
+SAVE
+FINISH
+!===============2.2谐响应分析==========================
+!===============2.2.1频率范围和采样点数==========================
+
+!===============2.2.2谐响应分析==========================
+/SOLU
+ANTYPE,3!设定为谐响应分析
+HROPT,MSUP,100, ,!使用100阶模态叠加法
+HROUT,OFF,OFF,0!输出关闭
+!===============2.2.3激励设置==========================
+*SET,FF,5!激振力大小
+*SET,NN,1!激振力阶次
+*DIM,FDATA,ARRAY,12,2!数组FDATA储存每个叶片激振力的虚部、实部
+*AFUN,DEG!使用角度制
+*DO,I,0,11,1
+    FDATA(I+1,1)=FF*COS(30*I*NN)
+    FDATA(I+1,2)=FF*SIN(30*I*NN)
+*ENDDO
+!===============2.2.4节点加载和输出节点设置==========================
+!===============2.2.4节点加载和输出节点设置==========================
+!叶尖节点编号获取及叶尖加载
+*DIM,NPT,ARRAY,12,1!NPB储存12个叶尖节点编号
+WPCSYS,-1,0
+CSYS,4
+wprot,15
+*DO,I,1,12,1
+    NSEL,S,LOC,X,300
+    NSEL,R,LOC,Y,-1,1
+    NSEL,R,LOC,Z,-1,1
+    *GET,NPT(I,1),NODE,,NUM,MAX!获取节点编号
+    F,NPT(I,1),FZ,FDATA(I,1),FDATA(I,2)!叶尖加载
+    ALLSEL,ALL
+    wprot,30
+*ENDDO  
+!边界节点获取
+CSYS,1!激活主柱坐标系
+!*GET,NNOD,NODE,0,COUNT!获取节点总数
+*DIM,NPB,ARRAY,12,45!边界节点共45个
+*DO,I,1,12,1
+    NSEL,S,LOC,X,120
+    NSEL,R,LOC,Y,15-seta+(I-1)*30,15+seta+(I-1)*30
+    NSEL,R,LOC,Z,-5,5
+    *GET,NNOD,NODE,0,COUNT!获取节点总数
+    *VGET,NPLIST,NODE,,NLIST!从小到大获得表面节点编号
+    *DO,J,1,NNOD,1
+        NPB(I,J)=NPLIST(J)
+    *ENDDO
+    ALLSEL,ALL
+*ENDDO  
+!===============2.2.5求解设置==========================  
+ALLSEL,ALL
+HARFRQ,W_1,W_2,!频率范围
+NSUBST,K, !采样个数
+KBC,1!载荷阶跃
+DMPRAT,0.0025!模态阻尼比
+OUTPR,BASIC,NONE,
+OUTRES,ALL,ALL, 
+SOLVE
+SAVE
+FINISH
+!===============三、后处理==========================  
+/POST26
+*DIM,TIPDATA,TABLE,K,2*12!输出table
+FILE,,'rfrq','.'
+NUMVAR,2000 
+PLCPLX,0
+/GRID,1 
+/AXLAB,Y,AMPL
+!创建变量
+*DO,I,1,12,1
+    NSOL,I+1,NPT(I),U,Z,TIP_%I%!叶尖
+    VGET,TIPDATA(1,2*I-1),I+1,,0!实部
+    VGET,TIPDATA(1,2*I),I+1,,1!虚部
+*ENDDO  
+*CREATE,NFDREAD,mac
+/OUTPUT
+*MWRITE,TIPDATA,TIPDATA,txt,,JIK,2*12,K
+(400F16.8)
+*END
+NFDREAD
+
+
+
+
